@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import GUI from "lil-gui";
-import CANNON from "cannon";
+import * as CANNON from "cannon-es";
 import { positionGeometry } from "three/examples/jsm/nodes/Nodes.js";
 console.log(CANNON);
 /**
@@ -28,6 +28,19 @@ debugObject.createBox = () => {
 };
 gui.add(debugObject, "createBox");
 
+debugObject.reset = () => {
+  for (const object of objectsToUpdate) {
+    // Remove body
+    object.body.removeEventListener("collide", playHitSound);
+    world.removeBody(object.body);
+
+    // Remove mesh
+    scene.remove(object.mesh);
+  }
+  objectsToUpdate.splice(0, objectsToUpdate.length);
+};
+gui.add(debugObject, "reset");
+
 /**
  * Base
  */
@@ -36,6 +49,32 @@ const canvas = document.querySelector("canvas.webgl");
 
 // Scene
 const scene = new THREE.Scene();
+
+/**
+ * Sound
+ */
+
+const hitSound = new Audio("/sounds/hit.mp3");
+
+let canPlaySound = true;
+
+const playHitSound = (collision) => {
+  const impactStrength = collision.contact.getImpactVelocityAlongNormal();
+
+  if (!canPlaySound) return;
+
+  if (impactStrength > 1) {
+    hitSound.volume = Math.min(1, impactStrength / 10); // Adjust this factor to suit your needs
+    hitSound.currentTime = 0;
+    hitSound.play();
+
+    // Prevent another sound from playing immediately
+    canPlaySound = false;
+    setTimeout(() => {
+      canPlaySound = true;
+    }, 80); // Adjust the delay duration as needed (100ms here)
+  }
+};
 
 /**
  * Textures
@@ -57,6 +96,8 @@ const environmentMapTexture = cubeTextureLoader.load([
  */
 
 const world = new CANNON.World();
+world.broadphase = new CANNON.SAPBroadphase(world);
+world.allowSleep = true;
 world.gravity.set(0, -9.82, 0);
 
 // Materials
@@ -166,8 +207,8 @@ const sphereMaterial = new THREE.MeshStandardMaterial({
   roughness: 0.4,
   envMap: environmentMapTexture,
 });
-gui.add(sphereMaterial, "metalness").min(0.001).max(1).step(0.001);
-gui.add(sphereMaterial, "roughness").min(0.001).max(1).step(0.001);
+gui.add(sphereMaterial, "metalness").min(0.001).max(1).step(0.001).name("Sphere Metalness");
+gui.add(sphereMaterial, "roughness").min(0.001).max(1).step(0.001).name("Sphere Roughness");
 
 const createSphere = (radius, position) => {
   // ThreeJs Mesh
@@ -186,6 +227,7 @@ const createSphere = (radius, position) => {
     material: defaultMaterial,
   });
   body.position.copy(position);
+  body.addEventListener("collide", playHitSound);
   world.addBody(body);
 
   //save in objects to update
@@ -205,8 +247,8 @@ const boxMaterial = new THREE.MeshStandardMaterial({
   envMap: environmentMapTexture,
   envMapIntensity: 0.5,
 });
-gui.add(boxMaterial, "metalness").min(0.001).max(1).step(0.001);
-gui.add(boxMaterial, "roughness").min(0.001).max(1).step(0.001);
+gui.add(boxMaterial, "metalness").min(0.001).max(1).step(0.001).name("Box Metalness");
+gui.add(boxMaterial, "roughness").min(0.001).max(1).step(0.001).name("Box Roughness");
 
 const createBox = (width, height, depth, position) => {
   // Three.js mesh
@@ -226,13 +268,14 @@ const createBox = (width, height, depth, position) => {
     material: defaultMaterial,
   });
   body.position.copy(position);
+  body.addEventListener("collide", playHitSound);
   world.addBody(body);
 
   // Save in objects
   objectsToUpdate.push({ mesh, body });
 };
 
-createBox(1, 1.5, 2, { x: 0, y: 3, z: 0 });
+createBox(1, 1, 1, { x: 0, y: 2, z: 0 });
 
 /**
  * Animate
@@ -250,6 +293,7 @@ const tick = () => {
 
   for (const object of objectsToUpdate) {
     object.mesh.position.copy(object.body.position);
+    object.mesh.quaternion.copy(object.body.quaternion);
   }
 
   // Update controls
